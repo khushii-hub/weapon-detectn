@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Weapon Detection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .image-container {
+            display: flex;
+            gap: 20px;
+            position: relative;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        .detection-box {
+            position: absolute;
+            border: 3px solid #00ff00;
+            background-color: rgba(0, 255, 0, 0.1);
+            pointer-events: none;
+            z-index: 1;
+        }
+        .detection-label {
+            position: absolute;
+            background-color: #00ff00;
+            color: black;
+            padding: 2px 5px;
+            font-size: 14px;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 2;
+        }
+        .image-wrapper {
+            position: relative;
+            display: inline-block;
+            border: 2px solid #ccc;
+            padding: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .button-container {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        #videoElement {
+            max-width: 100%;
+            display: none;
+        }
+        #preview {
+            max-width: 100%;
+            display: none;
+        }
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        #preview, #videoElement {
+            max-width: 640px;
+            max-height: 640px;
+        }
+        .detection-box.knife {
+            border-color: #ff0000;
+            background-color: rgba(255, 0, 0, 0.1);
+        }
+        .detection-label.knife {
+            background-color: #ff0000;
+            color: white;
+        }
+        .detection-box.drill {
+            border-color: #0000ff;
+            background-color: rgba(0, 0, 255, 0.1);
+        }
+        .detection-label.drill {
+            background-color: #0000ff;
+            color: white;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        .control-group h3 {
+            margin: 0;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #ccc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Weapon Detection Test</h1>
+        <div class="controls">
+            <div class="control-group">
+                <h3>Webcam Controls</h3>
+                <div class="button-container">
+                    <button onclick="startWebcam()">Start Webcam</button>
+                    <button onclick="stopWebcam()">Stop Webcam</button>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h3>Detection Modes</h3>
+                <div class="button-container">
+                    <button onclick="toggleRealTime()" id="realTimeBtn">Start Real-time Detection</button>
+                    <button onclick="captureAndDetect()" id="captureBtn">Capture & Detect</button>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h3>Image Upload</h3>
+                <div class="button-container">
+                    <input type="file" id="imageInput" accept="image/*" style="display: none;">
+                    <button onclick="document.getElementById('imageInput').click()">Upload Image</button>
+                </div>
+            </div>
+        </div>
+        <div class="image-container">
+            <div class="image-wrapper">
+                <video id="videoElement" autoplay></video>
+                <img id="preview">
+            </div>
+        </div>
+        <div class="result" id="result"></div>
+    </div>
+
+    <script>
+        const videoElement = document.getElementById('videoElement');
+        const imageInput = document.getElementById('imageInput');
+        const preview = document.getElementById('preview');
+        const result = document.getElementById('result');
+        const realTimeBtn = document.getElementById('realTimeBtn');
+        const captureBtn = document.getElementById('captureBtn');
+        let stream = null;
+        let realTimeDetection = false;
+        let detectionInterval = null;
+        const CONFIDENCE_THRESHOLD = 29; // Fixed confidence threshold
+
+        async function startWebcam() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                videoElement.srcObject = stream;
+                videoElement.style.display = 'block';
+                preview.style.display = 'none';
+                captureBtn.disabled = false;
+            } catch (err) {
+                console.error("Error accessing webcam:", err);
+                alert("Error accessing webcam. Please make sure you have a webcam connected and have granted permission to access it.");
+            }
+        }
+
+        function stopWebcam() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                videoElement.srcObject = null;
+                videoElement.style.display = 'none';
+                stopRealTimeDetection();
+                captureBtn.disabled = true;
+            }
+        }
+
+        function toggleRealTime() {
+            realTimeDetection = !realTimeDetection;
+            realTimeBtn.textContent = realTimeDetection ? 'Stop Real-time Detection' : 'Start Real-time Detection';
+            
+            if (realTimeDetection) {
+                startRealTimeDetection();
+            } else {
+                stopRealTimeDetection();
+            }
+        }
+
+        function startRealTimeDetection() {
+            if (!stream) {
+                alert('Please start the webcam first');
+                return;
+            }
+            
+            detectionInterval = setInterval(() => {
+                const canvas = document.createElement('canvas');
+                canvas.width = videoElement.videoWidth;
+                canvas.height = videoElement.videoHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                
+                preview.src = canvas.toDataURL('image/jpeg');
+                detectWeapons();
+            }, 100); // Detect every 100ms
+        }
+
+        function stopRealTimeDetection() {
+            if (detectionInterval) {
+                clearInterval(detectionInterval);
+                detectionInterval = null;
+            }
+        }
+
+        function captureAndDetect() {
+            if (!stream) {
+                alert('Please start the webcam first');
+                return;
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = videoElement.videoWidth;
+            canvas.height = videoElement.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+
+            preview.src = canvas.toDataURL('image/jpeg');
+            preview.style.display = 'block';
+            videoElement.style.display = 'none';
+
+            detectWeapons();
+        }
+
+        imageInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    preview.src = e.target.result;
+                    preview.style.display = 'block';
+                    videoElement.style.display = 'none';
+                    if (stream) {
+                        stopWebcam();
+                    }
+                    detectWeapons();
+                }
+                reader.readAsDataURL(file);
+            }
+        });
+
+        function detectWeapons() {
+            if (!preview.src) {
+                alert('Please capture an image or upload one first');
+                return;
+            }
+
+            result.innerHTML = 'Processing...';
+            
+            fetch('http://127.0.0.1:5001/detect', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    image: preview.src
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Clear previous detection boxes and labels
+                const boxes = document.querySelectorAll('.detection-box, .detection-label');
+                boxes.forEach(box => box.remove());
+
+                // Display results
+                let resultText = '';
+                if (data.detected) {
+                    resultText = `Detected ${data.count} object(s):\n`;
+                    data.detections.forEach((detection, index) => {
+                        const confidence = detection.confidence * 100;
+                        if (confidence >= CONFIDENCE_THRESHOLD) {
+                            const label = detection.class === 'drill' ? 'harmful object:drill' : 'weapon:knife';
+                            resultText += `${index + 1}. ${label} (confidence: ${confidence.toFixed(2)}%)\n`;
+                            
+                            // Draw detection box
+                            const box = document.createElement('div');
+                            box.className = `detection-box ${detection.class}`;
+                            const [x1, y1, x2, y2] = detection.bbox;
+                            box.style.left = `${x1}px`;
+                            box.style.top = `${y1}px`;
+                            box.style.width = `${x2 - x1}px`;
+                            box.style.height = `${y2 - y1}px`;
+                            preview.parentNode.appendChild(box);
+                            
+                            // Add label
+                            const labelElement = document.createElement('div');
+                            labelElement.className = `detection-label ${detection.class}`;
+                            labelElement.textContent = label;
+                            labelElement.style.left = `${x1}px`;
+                            labelElement.style.top = `${y1 - 20}px`;
+                            preview.parentNode.appendChild(labelElement);
+                        }
+                    });
+                } else {
+                    resultText = 'No objects detected';
+                }
+                result.innerHTML = resultText;
+            })
+            .catch(error => {
+                result.innerHTML = `Error: ${error.message}`;
+            });
+        }
+    </script>
+</body>
+</html> 
