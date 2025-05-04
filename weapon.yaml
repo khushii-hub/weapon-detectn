@@ -1,0 +1,7 @@
+path: C:/PS 2/weapon-detection/weapon-dataset  # dataset root dir
+train: images/train  # train images (relative to 'path')
+val: images/val  # val images (relative to 'path')
+
+# Classes
+nc: 2  # number of classes
+names: ['drill', 'knife']  # class names
